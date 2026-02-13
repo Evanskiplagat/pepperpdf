@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-ui: "Outfit", "Segoe UI", sans-serif;
+  --font-body: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+  --bg-shell: #edf1f7;
+  --bg-tint: #f8f7f4;
+  --panel: rgba(255, 255, 255, 0.84);
+  --panel-strong: #ffffff;
+  --ink: #1f2738;
+  --muted: #6c7483;
+  --line: #d8deea;
+  --accent: #e24a5a;
+  --accent-soft: #fff1f3;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 20% -10%, #ffe9c8 0%, transparent 35%),
+    radial-gradient(circle at 85% 0%, #dbe8ff 0%, transparent 30%),
+    linear-gradient(160deg, var(--bg-tint) 0%, var(--bg-shell) 75%);
+}
+
+.editor-shell {
+  min-height: 100vh;
+  color: var(--ink);
+}
+
+.editor-card {
+  border: 1px solid rgba(216, 222, 234, 0.9);
+  background: var(--panel);
+  box-shadow: 0 18px 42px rgba(28, 39, 61, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.editor-glow {
+  box-shadow: 0 22px 52px rgba(28, 39, 61, 0.12);
+}
+
+.editor-appear {
+  animation: editor-rise 0.45s ease-out both;
+}
+
+@keyframes editor-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
