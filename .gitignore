@@ -1,8 +1,23 @@
+# dependencies
 node_modules/
-.env.local
-.env.*.local.next/
-.env.local
-.env.*.local
+
+# Next.js build output
+.next/
+out/
+
+# env files
+.env*
+!.env.example
+
+# logs
+*.log
+*.err
+
+# build artifacts
 dist/
 build/
-*.log
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+.vscode/
