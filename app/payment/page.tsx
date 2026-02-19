@@ -1,128 +1,165 @@
 import Link from "next/link";
+import PaymentClient from "./PaymentClient";
 
-export default function PaymentPage() {
+type PaymentPageProps = {
+  searchParams?: {
+    intent?: string;
+    returnTo?: string;
+  };
+};
+
+export default function PaymentPage({ searchParams }: PaymentPageProps) {
+  const intent = searchParams?.intent;
+  const returnTo = searchParams?.returnTo || "/editor";
+  const safeReturnTo = returnTo.startsWith("/") ? returnTo : "/editor";
+
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_12%_8%,#ffe8c2_0%,transparent_26%),radial-gradient(circle_at_88%_0%,#cfdfff_0%,transparent_32%),linear-gradient(180deg,#f6f8fd_0%,#e9eef7_100%)]">
-      <div className="min-h-screen px-3 py-4 sm:px-4 sm:py-5 lg:px-10 lg:py-8">
-        <header className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.35em] text-[#8b94a8]">Secure Checkout</div>
-            <h1 className="mt-2 text-2xl font-semibold text-[#1f2738] lg:text-3xl">Choose annual plan and pay</h1>
-          </div>
-          <Link
-            href="/"
-            className="rounded-full border border-[#d8deea] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#5f6880] transition hover:bg-[#f8fbff]"
-          >
-            Back
+    <div className="min-h-screen bg-[#f8fafc]">
+
+      {/* Nav */}
+      <nav className="border-b border-gray-200 bg-white">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-600 text-xs font-black text-white">P</div>
+            <span className="text-sm font-black tracking-widest text-gray-900">PEPPERPDF</span>
           </Link>
-        </header>
+          <Link
+            href={safeReturnTo}
+            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-600 transition hover:bg-gray-50"
+          >
+            Back to editor
+          </Link>
+        </div>
+      </nav>
 
-        <section className="mt-6 grid items-start gap-5 xl:grid-cols-[minmax(320px,0.95fr)_minmax(0,1.05fr)]">
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-[#d8deea] bg-gradient-to-br from-[#1f2738] to-[#2d3d57] p-6 text-white">
-              <div className="text-xs uppercase tracking-[0.28em] text-white/70">Pro Annual</div>
-              <div className="mt-2 text-4xl font-semibold sm:text-5xl">$190</div>
-              <div className="text-xs uppercase tracking-[0.24em] text-white/70">per year</div>
-              <div className="mt-1 text-[11px] uppercase tracking-[0.2em] text-[#ffb8b2]">Equivalent to $15.83/month</div>
-              <ul className="mt-5 space-y-2 text-sm text-white/90">
-                <li>Unlimited exports</li>
-                <li>Advanced text editing</li>
-                <li>Priority support</li>
-                <li>Version history (90 days)</li>
-                <li>Team sharing</li>
-                <li>Watermark removal</li>
-              </ul>
-            </div>
-            <div className="rounded-2xl border border-[#d8deea] bg-[#f7f9fd] p-5">
-              <div className="text-xs font-semibold uppercase tracking-[0.25em] text-[#8b94a8]">Order Summary</div>
-              <div className="mt-4 space-y-2 text-sm text-[#5f6880]">
-                <div className="flex items-center justify-between">
-                  <span>Pro Annual</span>
-                  <span>$190.00</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Tax</span>
-                  <span>$0.00</span>
-                </div>
-                <div className="mt-3 flex items-center justify-between border-t border-[#d8deea] pt-3 font-semibold text-[#1f2738]">
-                  <span>Total today</span>
-                  <span>$190.00</span>
-                </div>
-              </div>
-            </div>
-          </div>
+      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
 
-          <form className="rounded-2xl border border-[#d8deea] bg-white p-4 sm:p-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.2em] text-[#8b94a8]">
-                  Full Name
-                </label>
+        {/* Page header */}
+        <div className="mb-8">
+          <p className="text-xs font-bold uppercase tracking-widest text-red-600">Checkout</p>
+          <h1 className="mt-1 text-2xl font-black text-gray-900 sm:text-3xl">Export your PDF for €1</h1>
+          {intent === "export" && (
+            <p className="mt-1.5 text-sm text-gray-500">Your export will be ready immediately after payment.</p>
+          )}
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
+
+          {/* Payment form */}
+          <div className="order-2 rounded-2xl border border-gray-200 bg-white p-5 sm:p-7 lg:order-1">
+            <h2 className="mb-5 text-base font-bold text-gray-900">Payment details</h2>
+            <form className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-gray-400">Full Name</label>
                 <input
                   type="text"
                   placeholder="Alex Morgan"
-                  className="w-full rounded-xl border border-[#c5cedf] bg-white px-3 py-3 text-sm text-[#1f2738] outline-none focus:border-[#94a0b8]"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.2em] text-[#8b94a8]">
-                  Email
-                </label>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-gray-400">Email</label>
                 <input
                   type="email"
-                  placeholder="you@company.com"
-                  className="w-full rounded-xl border border-[#c5cedf] bg-white px-3 py-3 text-sm text-[#1f2738] outline-none focus:border-[#94a0b8]"
+                  placeholder="you@example.com"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.2em] text-[#8b94a8]">
-                  Card Number
-                </label>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-gray-400">Card Number</label>
                 <input
                   type="text"
                   placeholder="4242 4242 4242 4242"
-                  className="w-full rounded-xl border border-[#c5cedf] bg-white px-3 py-3 text-sm text-[#1f2738] outline-none focus:border-[#94a0b8]"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.2em] text-[#8b94a8]">
-                  Expiry
-                </label>
-                <input
-                  type="text"
-                  placeholder="MM/YY"
-                  className="w-full rounded-xl border border-[#c5cedf] bg-white px-3 py-3 text-sm text-[#1f2738] outline-none focus:border-[#94a0b8]"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-gray-400">Expiry</label>
+                  <input
+                    type="text"
+                    placeholder="MM / YY"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-gray-400">CVC</label>
+                  <input
+                    type="text"
+                    placeholder="123"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.2em] text-[#8b94a8]">
-                  CVC
-                </label>
-                <input
-                  type="text"
-                  placeholder="123"
-                  className="w-full rounded-xl border border-[#c5cedf] bg-white px-3 py-3 text-sm text-[#1f2738] outline-none focus:border-[#94a0b8]"
-                />
+
+              <PaymentClient safeReturnTo={safeReturnTo} />
+
+              <p className="text-center text-xs text-gray-400">
+                Demo UI only — integrate Stripe or PayPal to process real payments.
+              </p>
+            </form>
+
+            {/* Trust badges */}
+            <div className="mt-6 grid grid-cols-2 gap-2 rounded-xl border border-gray-100 bg-gray-50 p-4 sm:grid-cols-4">
+              {["Secure payment", "Instant delivery", "No subscription", "Receipt by email"].map((t) => (
+                <div key={t} className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <svg viewBox="0 0 12 12" fill="none" className="h-3 w-3 shrink-0 text-green-500">
+                    <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M3.5 6l1.5 1.5 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  {t}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Order summary */}
+          <div className="order-1 lg:order-2">
+            <div className="rounded-2xl border-2 border-red-600 bg-white p-5 sm:p-6">
+              <p className="text-xs font-bold uppercase tracking-widest text-red-600">Order summary</p>
+
+              <div className="mt-4 space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">PDF Export</p>
+                    <p className="text-xs text-gray-400">Single export · one-time charge</p>
+                  </div>
+                  <span className="text-sm font-bold text-gray-900">€1.00</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+                  <span className="text-xs text-gray-400">Tax</span>
+                  <span className="text-xs text-gray-400">€0.00</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+                  <span className="text-base font-bold text-gray-900">Total</span>
+                  <span className="text-2xl font-black text-red-600">€1.00</span>
+                </div>
               </div>
             </div>
 
-            <button
-              type="button"
-              className="mt-6 w-full rounded-xl bg-[#1f2738] px-5 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-[#161d2c]"
-            >
-              Pay $190.00 yearly
-            </button>
-
-            <p className="mt-3 text-xs text-[#8b94a8]">Demo UI only. Integrate Stripe/PayPal to process payments.</p>
-            <div className="mt-5 grid gap-2 rounded-xl border border-[#d8deea] bg-[#f7f9fd] p-4 text-xs text-[#5f6880] sm:grid-cols-2">
-              <span>Includes 12 months access</span>
-              <span>Cancel before renewal</span>
-              <span>Secure card processing</span>
-              <span>Email invoice receipt</span>
+            {/* What you get */}
+            <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-5">
+              <p className="mb-3 text-xs font-bold uppercase tracking-widest text-gray-400">What you get</p>
+              <ul className="space-y-2.5 text-sm text-gray-600">
+                {[
+                  "Fully editable PDF exported",
+                  "All text edits preserved",
+                  "Shapes & annotations included",
+                  "Download ready instantly",
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-2">
+                    <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 shrink-0 text-red-500">
+                      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M5 8l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {item}
+                  </li>
+                ))}
+              </ul>
             </div>
-          </form>
-        </section>
-      </div>
-    </main>
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

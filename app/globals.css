@@ -5,15 +5,16 @@
 :root {
   --font-ui: "Outfit", "Segoe UI", sans-serif;
   --font-body: "Plus Jakarta Sans", "Segoe UI", sans-serif;
-  --bg-shell: #edf1f7;
-  --bg-tint: #f8f7f4;
-  --panel: rgba(255, 255, 255, 0.84);
-  --panel-strong: #ffffff;
-  --ink: #1f2738;
-  --muted: #6c7483;
-  --line: #d8deea;
-  --accent: #e24a5a;
-  --accent-soft: #fff1f3;
+  --bg-shell: #F1F5F9;
+  --panel: #FFFFFF;
+  --ink: #0F172A;
+  --muted: #64748B;
+  --subtle: #94A3B8;
+  --line: #E2E8F0;
+  --red: #DC2626;
+  --red-dark: #B91C1C;
+  --red-soft: #FEF2F2;
+  --red-border: #FECACA;
 }
 
 html,
@@ -25,10 +26,7 @@ body {
   margin: 0;
   font-family: var(--font-body);
   color: var(--ink);
-  background:
-    radial-gradient(circle at 20% -10%, #ffe9c8 0%, transparent 35%),
-    radial-gradient(circle at 85% 0%, #dbe8ff 0%, transparent 30%),
-    linear-gradient(160deg, var(--bg-tint) 0%, var(--bg-shell) 75%);
+  background: var(--bg-shell);
 }
 
 .editor-shell {
@@ -37,24 +35,23 @@ body {
 }
 
 .editor-card {
-  border: 1px solid rgba(216, 222, 234, 0.9);
+  border: 1px solid var(--line);
   background: var(--panel);
-  box-shadow: 0 18px 42px rgba(28, 39, 61, 0.08);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.04);
 }
 
 .editor-glow {
-  box-shadow: 0 22px 52px rgba(28, 39, 61, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.06);
 }
 
 .editor-appear {
-  animation: editor-rise 0.45s ease-out both;
+  animation: editor-rise 0.3s ease-out both;
 }
 
 @keyframes editor-rise {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
 
   to {

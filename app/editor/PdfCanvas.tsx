@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { Canvas, FabricImage, Rect, Textbox } from "fabric";
 import { PDFDocument, rgb } from "pdf-lib";
 
@@ -16,19 +17,23 @@ type PdfCanvasProps = {
   url?: string;
   bytes?: Uint8Array;
   scale?: number;
+  onUploadPdf?: (event: ChangeEvent<HTMLInputElement>) => void;
 };
 
 export type PdfCanvasHandle = {
   exportPdf: () => Promise<Uint8Array | null>;
+  addTextBox: () => void;
+  addRectangle: () => void;
 };
 
 type PdfStatus = "idle" | "loading" | "ready" | "error";
 
 const DEFAULT_CANVAS_WIDTH = 900;
 const PAGE_ASPECT_RATIO = 1.4142;
+const CANVAS_VIEWPORT_PADDING = 24;
 
 const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas(
-  { url, bytes, scale = 1.2 },
+  { url, bytes, scale = 1.2, onUploadPdf },
   ref
 ) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -55,8 +60,21 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
   const [textItemCount, setTextItemCount] = useState(0);
   const [boxesCount, setBoxesCount] = useState(0);
   const previewUrl = url
-    ? (url.includes("#") ? url : `${url}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`)
+    ? (url.includes("#") ? url : `${url}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`)
     : "";
+
+  const getFittedCanvasSize = useCallback(
+    (sourceWidth: number, sourceHeight: number) => {
+      const hostWidth = canvasHostRef.current?.clientWidth ?? DEFAULT_CANVAS_WIDTH;
+      const availableWidth = Math.max(320, hostWidth - CANVAS_VIEWPORT_PADDING);
+      const scaleFactor = availableWidth / sourceWidth;
+      return {
+        width: Math.round(sourceWidth * scaleFactor),
+        height: Math.max(420, Math.round(sourceHeight * scaleFactor)),
+      };
+    },
+    []
+  );
 
   const getOrCreateCanvas = useCallback(() => {
     if (fabricRef.current) {
@@ -81,12 +99,12 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
     fabricCanvas.selection = false;
     fabricCanvas.targetFindTolerance = 12;
 
-    const parentWidth = host.clientWidth || DEFAULT_CANVAS_WIDTH;
-    const width = Math.max(320, Math.min(1100, parentWidth - 24));
-    const height = Math.max(480, Math.round(width * PAGE_ASPECT_RATIO));
+    const defaultPageWidth = DEFAULT_CANVAS_WIDTH;
+    const defaultPageHeight = Math.round(DEFAULT_CANVAS_WIDTH * PAGE_ASPECT_RATIO);
+    const { width, height } = getFittedCanvasSize(defaultPageWidth, defaultPageHeight);
 
     fabricCanvas.setDimensions({ width, height });
-    fabricCanvas.backgroundColor = "transparent";
+    fabricCanvas.backgroundColor = "#ffffff";
     fabricCanvas.requestRenderAll();
     fabricCanvas.on("mouse:wheel", (event) => {
       if (!scrollRef.current) {
@@ -159,10 +177,12 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
 
       const existing = lineEditsRef.current.get(lineData.id);
       if (existing) {
-        fabricCanvas.setActiveObject(existing);
-        existing.enterEditing();
-        existing.selectAll();
-        fabricCanvas.requestRenderAll();
+        setTimeout(() => {
+          fabricCanvas.setActiveObject(existing);
+          existing.enterEditing();
+          existing.selectAll();
+          fabricCanvas.requestRenderAll();
+        }, 0);
         return;
       }
 
@@ -176,7 +196,7 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
         backgroundColor: "transparent",
         editable: true,
       });
-      textbox.set("data", {
+      (textbox as unknown as { data?: Record<string, unknown> }).data = {
         kind: "pdf-edit",
         lineId: lineData.id,
         originalRect: {
@@ -185,7 +205,7 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
           width: lineData.width,
           height: lineData.height,
         },
-      });
+      };
 
       lineEditsRef.current.set(lineData.id, textbox);
       const rectTarget = fabricCanvas
@@ -195,15 +215,18 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
         fabricCanvas.remove(rectTarget);
       }
       fabricCanvas.add(textbox);
-      fabricCanvas.setActiveObject(textbox);
-      textbox.enterEditing();
-      textbox.selectAll();
       fabricCanvas.requestRenderAll();
+      setTimeout(() => {
+        fabricCanvas.setActiveObject(textbox);
+        textbox.enterEditing();
+        textbox.selectAll();
+        fabricCanvas.requestRenderAll();
+      }, 0);
     });
 
     fabricRef.current = fabricCanvas;
     return fabricCanvas;
-  }, []);
+  }, [getFittedCanvasSize]);
 
   const addTextBox = useCallback(() => {
     const canvas = getOrCreateCanvas();
@@ -263,6 +286,7 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
     let cancelled = false;
     let renderTask: { cancel?: () => void } | null = null;
     let hasCanvasBackground = false;
+    let renderStage = "init";
 
     const loadPdfBackground = async () => {
       const canvas = getOrCreateCanvas();
@@ -276,7 +300,7 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
         lineBoxesRef.current = [];
         canvas.backgroundImage = undefined;
         canvas.clear();
-        canvas.backgroundColor = "transparent";
+        canvas.backgroundColor = "#ffffff";
         canvas.requestRenderAll();
         setStatus("idle");
         setErrorMessage(null);
@@ -298,9 +322,10 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
       setBoxesCount(0);
 
       try {
-        const pdfjs = (await import("pdfjs-dist/legacy/build/pdf.mjs")) as PdfJsModule;
+        renderStage = "load-pdfjs";
+        const pdfjs = (await import("pdfjs-dist/build/pdf.mjs")) as PdfJsModule;
         pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-
+        renderStage = "read-pdf-bytes";
         let sourceBytes: Uint8Array;
         if (bytes?.byteLength) {
           sourceBytes = new Uint8Array(bytes);
@@ -316,6 +341,7 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
         }
         pdfBytesRef.current = new Uint8Array(sourceBytes);
 
+        renderStage = "parse-pdf";
         const loadingTask = pdfjs.getDocument({ data: sourceBytes });
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
@@ -330,6 +356,10 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
         pdfCanvas.width = Math.floor(viewport.width);
         pdfCanvas.height = Math.floor(viewport.height);
 
+        pdfContext.fillStyle = "#ffffff";
+        pdfContext.fillRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+
+        renderStage = "render-page";
         renderTask = page.render({ canvasContext: pdfContext, viewport });
         await (renderTask as { promise: Promise<void> }).promise;
 
@@ -337,20 +367,25 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
           return;
         }
 
+        renderStage = "create-background";
         const dataUrl = pdfCanvas.toDataURL("image/png");
-        const imageElement = document.createElement("img");
-        imageElement.src = dataUrl;
-        await imageElement.decode();
 
-        if (cancelled) {
-          return;
-        }
-
-        const pageWidth = canvas.getWidth();
-        const pageHeight = Math.round((pdfCanvas.height / pdfCanvas.width) * pageWidth);
+        const { width: pageWidth, height: pageHeight } = getFittedCanvasSize(
+          pdfCanvas.width,
+          pdfCanvas.height
+        );
         canvas.setDimensions({ width: pageWidth, height: pageHeight });
 
-        const backgroundImage = new FabricImage(imageElement, {
+        let backgroundImage: FabricImage;
+        try {
+          backgroundImage = await FabricImage.fromURL(dataUrl);
+        } catch {
+          const imageElement = document.createElement("img");
+          imageElement.src = dataUrl;
+          await imageElement.decode();
+          backgroundImage = new FabricImage(imageElement);
+        }
+        backgroundImage.set({
           selectable: false,
           evented: false,
           left: 0,
@@ -362,182 +397,197 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
         canvas.requestRenderAll();
         hasCanvasBackground = true;
 
-        const textContent = await page.getTextContent();
-        const items = textContent.items as Array<{
-          str?: string;
-          transform?: number[];
-          width?: number;
-          height?: number;
-        }>;
-        setTextItemCount(items.length);
+        try {
+          renderStage = "extract-text";
+          const textContent = await page.getTextContent();
+          const items = textContent.items as Array<{
+            str?: string;
+            transform?: number[];
+            width?: number;
+            height?: number;
+          }>;
+          setTextItemCount(items.length);
 
-        canvas.getObjects().forEach((obj) => {
-          canvas.remove(obj);
-        });
+          canvas.getObjects().forEach((obj) => {
+            canvas.remove(obj);
+          });
 
-        const scaleFactor = pageWidth / pdfCanvas.width;
-        const multiply = (m1: number[], m2: number[]) => [
-          m1[0] * m2[0] + m1[2] * m2[1],
-          m1[1] * m2[0] + m1[3] * m2[1],
-          m1[0] * m2[2] + m1[2] * m2[3],
-          m1[1] * m2[2] + m1[3] * m2[3],
-          m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
-          m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
-        ];
+          const scaleFactor = pageWidth / pdfCanvas.width;
+          const multiply = (m1: number[], m2: number[]) => [
+            m1[0] * m2[0] + m1[2] * m2[1],
+            m1[1] * m2[0] + m1[3] * m2[1],
+            m1[0] * m2[2] + m1[2] * m2[3],
+            m1[1] * m2[2] + m1[3] * m2[3],
+            m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+            m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+          ];
 
-        const lines: Array<{
-          id: string;
-          text: string;
-          left: number;
-          right: number;
-          top: number;
-          height: number;
-          fontSize: number;
-        }> = [];
+          const lines: Array<{
+            id: string;
+            text: string;
+            left: number;
+            right: number;
+            top: number;
+            height: number;
+            fontSize: number;
+          }> = [];
 
-        items.forEach((item, index) => {
-          const text = item.str ?? "";
-          if (!text.trim() || !item.transform) {
-            return;
-          }
+          items.forEach((item, index) => {
+            const text = item.str ?? "";
+            if (!text.trim() || !item.transform) {
+              return;
+            }
 
-          const tx = multiply(viewport.transform, item.transform);
-          const rawX = tx[4];
-          const rawY = tx[5];
-          let rawFontHeight = Math.hypot(tx[0], tx[1]);
-          if (!rawFontHeight || rawFontHeight < 0.5) {
-            rawFontHeight = item.height && item.height > 0 ? item.height : 12;
-          }
-          let rawWidth =
-            item.width && item.width > 0 ? item.width : text.length * rawFontHeight * 0.55;
-          let rawHeight = item.height && item.height > 0 ? item.height : rawFontHeight;
+            const tx = multiply(viewport.transform, item.transform);
+            const rawX = tx[4];
+            const rawY = tx[5];
+            let rawFontHeight = Math.hypot(tx[0], tx[1]);
+            if (!rawFontHeight || rawFontHeight < 0.5) {
+              rawFontHeight = item.height && item.height > 0 ? item.height : 12;
+            }
+            let rawWidth =
+              item.width && item.width > 0 ? item.width : text.length * rawFontHeight * 0.55;
+            let rawHeight = item.height && item.height > 0 ? item.height : rawFontHeight;
 
-          const left = rawX * scaleFactor;
-          const top = (rawY - rawHeight) * scaleFactor;
-          let width = rawWidth * scaleFactor;
-          let height = rawHeight * scaleFactor;
+            const left = rawX * scaleFactor;
+            const top = (rawY - rawHeight) * scaleFactor;
+            let width = rawWidth * scaleFactor;
+            let height = rawHeight * scaleFactor;
 
-          if (width <= 1 && text.trim()) {
-            width = text.length * Math.max(rawFontHeight, 10) * 0.5 * scaleFactor;
-          }
+            if (width <= 1 && text.trim()) {
+              width = text.length * Math.max(rawFontHeight, 10) * 0.5 * scaleFactor;
+            }
 
-          if (height <= 0.5) {
-            return;
-          }
+            if (height <= 0.5) {
+              return;
+            }
 
-          const tolerance = Math.max(3, height * 0.6);
-          let line = lines.find((candidate) => Math.abs(candidate.top - top) < tolerance);
-          if (!line) {
-            line = {
-              id: `line-${index}-${Math.round(top)}`,
-              text: text.trim(),
-              left,
-              right: left + width,
-              top,
-              height,
-              fontSize: rawFontHeight * scaleFactor,
-            };
-            lines.push(line);
-            return;
-          }
-
-          line.text = `${line.text} ${text.trim()}`.trim();
-          line.left = Math.min(line.left, left);
-          line.right = Math.max(line.right, left + width);
-          line.height = Math.max(line.height, height);
-          line.fontSize = Math.max(line.fontSize, rawFontHeight * scaleFactor);
-        });
-
-        if (!lines.length && items.length) {
-          lineBoxesRef.current = items
-            .map((item, index) => {
-              const text = item.str ?? "";
-              if (!text.trim() || !item.transform) {
-                return null;
-              }
-              const tx = multiply(viewport.transform, item.transform);
-              let rawFontHeight = Math.hypot(tx[0], tx[1]);
-              if (!rawFontHeight || rawFontHeight < 0.5) {
-                rawFontHeight = item.height && item.height > 0 ? item.height : 12;
-              }
-              let rawWidth =
-                item.width && item.width > 0 ? item.width : text.length * rawFontHeight * 0.55;
-              let rawHeight = item.height && item.height > 0 ? item.height : rawFontHeight;
-              const left = tx[4] * scaleFactor;
-              const top = (tx[5] - rawHeight) * scaleFactor;
-              let width = rawWidth * scaleFactor;
-              let height = rawHeight * scaleFactor;
-              if (width <= 1 && text.trim()) {
-                width = text.length * Math.max(rawFontHeight, 10) * 0.5 * scaleFactor;
-              }
-              if (height <= 0.5) {
-                return null;
-              }
-              return {
-                id: `item-${index}-${Math.round(left)}-${Math.round(top)}`,
+            const tolerance = Math.max(3, height * 0.6);
+            let line = lines.find((candidate) => Math.abs(candidate.top - top) < tolerance);
+            if (!line) {
+              line = {
+                id: `line-${index}-${Math.round(top)}`,
                 text: text.trim(),
                 left,
+                right: left + width,
                 top,
-                width: Math.max(6, width),
-                height: Math.max(12, height),
-                fontSize: Math.max(10, rawFontHeight * scaleFactor),
+                height,
+                fontSize: rawFontHeight * scaleFactor,
               };
-            })
-            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
-        } else {
-          lineBoxesRef.current = lines.map((line) => {
-            const rectWidth = Math.max(6, line.right - line.left);
-            const rectHeight = Math.max(12, line.height);
-            const rectTop = line.top - (rectHeight - line.height) / 2;
-            return {
+              lines.push(line);
+              return;
+            }
+
+            line.text = `${line.text} ${text.trim()}`.trim();
+            line.left = Math.min(line.left, left);
+            line.right = Math.max(line.right, left + width);
+            line.height = Math.max(line.height, height);
+            line.fontSize = Math.max(line.fontSize, rawFontHeight * scaleFactor);
+          });
+
+          if (!lines.length && items.length) {
+            lineBoxesRef.current = items
+              .map((item, index) => {
+                const text = item.str ?? "";
+                if (!text.trim() || !item.transform) {
+                  return null;
+                }
+                const tx = multiply(viewport.transform, item.transform);
+                let rawFontHeight = Math.hypot(tx[0], tx[1]);
+                if (!rawFontHeight || rawFontHeight < 0.5) {
+                  rawFontHeight = item.height && item.height > 0 ? item.height : 12;
+                }
+                let rawWidth =
+                  item.width && item.width > 0 ? item.width : text.length * rawFontHeight * 0.55;
+                let rawHeight = item.height && item.height > 0 ? item.height : rawFontHeight;
+                const left = tx[4] * scaleFactor;
+                const top = (tx[5] - rawHeight) * scaleFactor;
+                let width = rawWidth * scaleFactor;
+                let height = rawHeight * scaleFactor;
+                if (width <= 1 && text.trim()) {
+                  width = text.length * Math.max(rawFontHeight, 10) * 0.5 * scaleFactor;
+                }
+                if (height <= 0.5) {
+                  return null;
+                }
+                return {
+                  id: `item-${index}-${Math.round(left)}-${Math.round(top)}`,
+                  text: text.trim(),
+                  left,
+                  top,
+                  width: Math.max(6, width),
+                  height: Math.max(12, height),
+                  fontSize: Math.max(10, rawFontHeight * scaleFactor),
+                };
+              })
+              .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+          } else {
+            lineBoxesRef.current = lines.map((line) => {
+              const rectWidth = Math.max(6, line.right - line.left);
+              const rectHeight = Math.max(12, line.height);
+              const rectTop = line.top - (rectHeight - line.height) / 2;
+              return {
+                id: line.id,
+                text: line.text,
+                left: line.left,
+                top: rectTop,
+                width: rectWidth,
+                height: rectHeight,
+                fontSize: Math.max(10, line.fontSize),
+              };
+            });
+          }
+
+          lineBoxesRef.current.forEach((line) => {
+            const rect = new Rect({
+              left: line.left,
+              top: line.top,
+              width: line.width,
+              height: line.height,
+              fill: "rgba(244,63,94,0.14)",
+              stroke: "rgba(225,29,72,0.9)",
+              strokeWidth: 1.5,
+              selectable: true,
+              hasControls: false,
+              hasBorders: false,
+              lockMovementX: true,
+              lockMovementY: true,
+              evented: true,
+              hoverCursor: "text",
+            });
+            (rect as unknown as { data?: Record<string, unknown> }).data = {
+              kind: "pdf-line",
               id: line.id,
               text: line.text,
               left: line.left,
-              top: rectTop,
-              width: rectWidth,
-              height: rectHeight,
-              fontSize: Math.max(10, line.fontSize),
+              top: line.top,
+              width: line.width,
+              height: line.height,
+              fontSize: line.fontSize,
             };
+            canvas.add(rect);
           });
-        }
+          canvas.requestRenderAll();
 
-        lineBoxesRef.current.forEach((line) => {
-          const rect = new Rect({
-            left: line.left,
-            top: line.top,
-            width: line.width,
-            height: line.height,
-            fill: "rgba(244,63,94,0.14)",
-            stroke: "rgba(225,29,72,0.9)",
-            strokeWidth: 1.5,
-            selectable: true,
-            hasControls: false,
-            hasBorders: false,
-            lockMovementX: true,
-            lockMovementY: true,
-            evented: true,
-            hoverCursor: "text",
-          });
-          rect.set("data", {
-            kind: "pdf-line",
-            id: line.id,
-            text: line.text,
-            left: line.left,
-            top: line.top,
-            width: line.width,
-            height: line.height,
-            fontSize: line.fontSize,
-          });
-          canvas.add(rect);
-        });
-        canvas.requestRenderAll();
+          setLineCount(lines.length);
+          setBoxesCount(lineBoxesRef.current.length);
+          if (!lines.length && !lineBoxesRef.current.length) {
+            setErrorMessage("No selectable text detected in this PDF.");
+          }
+        } catch (textDetectionError) {
+          lineEditsRef.current.clear();
+          lineBoxesRef.current = [];
+          setLineCount(0);
+          setTextItemCount(0);
+          setBoxesCount(0);
+          const message =
+            textDetectionError instanceof Error
+              ? textDetectionError.message
+              : "Text detection failed";
+          setErrorMessage(`${message}. Auto text detection is unavailable for this PDF.`);
+        }
 
         setStatus("ready");
-        setLineCount(lines.length);
-        setBoxesCount(lineBoxesRef.current.length);
-        if (!lines.length && !lineBoxesRef.current.length) {
-          setErrorMessage("No selectable text detected in this PDF.");
-        }
       } catch (error) {
         if (cancelled) {
           return;
@@ -580,8 +630,8 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
         setStatus("error");
         setErrorMessage(
           error instanceof Error
-            ? `${error.message}. Showing native PDF preview instead.`
-            : "Unable to render PDF. Showing native PDF preview instead."
+            ? `${renderStage}: ${error.message}. Showing native PDF preview instead.`
+            : `${renderStage}: Unable to render PDF. Showing native PDF preview instead.`
         );
         setUseNativePreview(true);
       }
@@ -593,7 +643,7 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
       cancelled = true;
       renderTask?.cancel?.();
     };
-  }, [bytes, getOrCreateCanvas, scale, url]);
+  }, [bytes, getFittedCanvasSize, getOrCreateCanvas, scale, url]);
 
   const parseColor = (value?: string | null) => {
     if (!value) {
@@ -750,81 +800,78 @@ const PdfCanvas = forwardRef<PdfCanvasHandle, PdfCanvasProps>(function PdfCanvas
     return pdfDoc.save();
   }, []);
 
-  useImperativeHandle(ref, () => ({ exportPdf }), [exportPdf]);
+  useImperativeHandle(ref, () => ({ exportPdf, addTextBox, addRectangle }), [exportPdf, addTextBox, addRectangle]);
 
   return (
-    <div className="relative flex h-full w-full flex-col">
-      <div className="flex items-center gap-2 pb-4">
-        <button
-          type="button"
-          onClick={addTextBox}
-          className="rounded-full border border-[#ffd2d8] bg-[#fff2f4] px-4 py-2 text-[11px] font-semibold uppercase tracking-widest text-[#bf3f4d] transition hover:border-[#ffb9c3] hover:bg-[#ffe8ec]"
-        >
-          Add Text
-        </button>
-        <button
-          type="button"
-          onClick={addRectangle}
-          className="rounded-full border border-[#ffd2d8] bg-[#fff2f4] px-4 py-2 text-[11px] font-semibold uppercase tracking-widest text-[#bf3f4d] transition hover:border-[#ffb9c3] hover:bg-[#ffe8ec]"
-        >
-          Add Rectangle
-        </button>
-        <span className="ml-auto text-[11px] font-semibold uppercase tracking-[0.3em] text-[#6c7483]">
-          {status === "loading" ? "Loading" : useNativePreview ? "Preview" : "Ready"}
-        </span>
-      </div>
-
+    <div className="relative flex h-full min-h-0 w-full flex-col bg-white">
+      {/* Canvas container — fills all remaining height */}
       <div
         ref={scrollRef}
         onWheel={(event) => {
-          if (!scrollRef.current) {
-            return;
-          }
+          if (!scrollRef.current) return;
           scrollRef.current.scrollTop += event.deltaY;
           scrollRef.current.scrollLeft += event.deltaX;
         }}
-        className="relative flex-1 overflow-auto rounded-2xl border border-[#d8deea] bg-white p-2 lg:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)]"
+        className="relative flex min-h-0 flex-1 flex-col overflow-auto bg-white"
       >
+        {/* Empty state */}
         {!url && (
-          <div className="absolute inset-2 z-20 flex items-center justify-center rounded-2xl border border-dashed border-[#c5cedf] bg-[#f8fbff]">
-            <div className="text-center">
-              <div className="text-sm font-semibold uppercase tracking-[0.24em] text-[#6c7483]">
-                No PDF loaded
-              </div>
-              <div className="mt-2 text-xs text-[#8b94a8]">
-                Upload a PDF to start editing.
-              </div>
-            </div>
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-10">
+            <svg viewBox="0 0 48 48" fill="none" className="h-14 w-14 text-gray-300">
+              <rect x="8" y="6" width="32" height="36" rx="4" stroke="currentColor" strokeWidth="2" />
+              <path d="M16 16h16M16 22h16M16 28h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <p className="text-sm font-bold uppercase tracking-widest text-gray-400">No PDF loaded</p>
+            <p className="text-xs text-gray-400">Upload a PDF to start editing</p>
+            <label className="inline-flex cursor-pointer items-center rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(220,38,38,0.3)] transition hover:bg-red-700">
+              Upload PDF
+              <input type="file" accept="application/pdf,.pdf" onChange={onUploadPdf} className="hidden" />
+            </label>
           </div>
         )}
+
+        {/* Native PDF preview */}
         {useNativePreview && (
           <iframe
             src={previewUrl}
             title="PDF Preview"
-            className="absolute inset-2 z-0 h-[calc(100%-1rem)] w-[calc(100%-1rem)] rounded-2xl border border-[#d8deea] bg-white"
+            className="flex-1 border-0 bg-white"
+            style={{ minHeight: "80vh" }}
           />
         )}
+
+        {/* Loading overlay */}
         {status === "loading" && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-[0.4em] text-[#8b94a8]">
-            Loading PDF
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 shadow-sm">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-gray-500">Loading PDF</span>
+            </div>
           </div>
         )}
+
+        {/* Error */}
         {errorMessage && (
-          <div className="absolute left-4 top-4 z-20 rounded-full border border-[#ffd7bc] bg-[#fff6eb] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-[#a35d2e]">
+          <div className="absolute left-3 top-3 z-20 flex max-w-[280px] items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 shadow-sm">
+            <svg viewBox="0 0 16 16" fill="none" className="mt-0.5 h-3.5 w-3.5 shrink-0">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M8 5v4M8 11v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
             {errorMessage}
           </div>
         )}
-      {status === "ready" && !useNativePreview && textItemCount > 0 && (
-        <div className="absolute right-4 top-4 z-20 rounded-full border border-[#ffd2d8] bg-[#fff2f4] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] text-[#bf3f4d]">
-          Editable text: {boxesCount}
-        </div>
-      )}
-      {status === "ready" && !useNativePreview && (
-        <div className="absolute right-4 top-12 z-20 rounded-full border border-[#d8deea] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6c7483]">
-          Text items: {textItemCount}
-        </div>
-      )}
-        {!useNativePreview && <div ref={canvasHostRef} className="min-h-[520px] w-full relative z-10" />}
+
+        {/* Editable badge */}
+        {status === "ready" && !useNativePreview && textItemCount > 0 && (
+          <div className="absolute right-3 top-3 z-20 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
+            {boxesCount} editable
+          </div>
+        )}
+
+        {/* Fabric canvas host */}
+        {!useNativePreview && (
+          <div ref={canvasHostRef} className="relative z-10 w-full" />
+        )}
       </div>
     </div>
   );
